@@ -1,0 +1,10 @@
+{
+  "name": "Remix: 고요로",
+  "description": "마음의 평온함을 비추는 고요한 한 걸음, 횡성 웰니스 디톡스 저니 고요로(GOYO-RO)",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
