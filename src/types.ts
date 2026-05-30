@@ -233,17 +233,19 @@ export const INITIAL_COURSES: Course[] = [
   },
   {
     id: 'c3',
-    name: '🐮 횡성 한우 정령의 길',
+    name: '🐮 횡성 한우 정령의 길 (출발: 횡성터미널/횡성역 연계)',
     category: 'beef',
     emoji: '🐮',
-    distance: '2.5km',
+    distance: '2.5km (터미널/역 출발 연계)',
     timeEstimate: '도보 50분',
     points: 180,
-    tags: ['한우 전통골목', '섬강 둔치길', '참숯 화로가'],
+    tags: ['대중교통 출발연계', '한우 전통골목', '섬강 둔치길'],
     locked: true,
-    info: '횡성 섬강 수맥의 보드라운 풀바람을 관찰하고 미식 가치와 로컬 미학을 음미해 보는 특별 웰니스 힐링 코스입니다.',
+    info: '횡성시외버스터미널 및 KTX 횡성역 등 주요 대중교통 노선 출발지와 바로 정합되는 대표 웰니스 코스! 섬강 수맥의 보드라운 풀바람과 맛있는 에너지를 충전하며 지치는 일상을 정화합니다.',
     guideMapPoints: [
-      { name: '섬강 생태 수변로', x: 28, y: 75, detail: '수초가 물결치는 잔잔한 섬강 탐방 첫관문' },
+      { name: '횡성시외버스터미널 (시외버스 출발지)', x: 10, y: 88, detail: '명상의 도보 시작점: 시외버스터미널 하차 후 출발 코스' },
+      { name: 'KTX 횡성역 (KTX 열차지점)', x: 18, y: 82, detail: '고속열차 하차지점: 도보 또는 셔틀 연계 가능 랜드마크' },
+      { name: '섬강 생태 수변로', x: 38, y: 75, detail: '수초가 물결치는 잔잔한 섬강 탐방 첫관문' },
       { name: '한우 문화 정각', x: 58, y: 48, detail: '장인의 숨결이 서린 참숯 내음을 음미하는 감각정원' },
       { name: '목동 풍경 조각마당', x: 80, y: 28, detail: '종착: 소와 목동 동상이 마음을 따뜻하게 안아주는 전당' }
     ],
@@ -318,7 +320,7 @@ export const INITIAL_RANKINGS: RankingUser[] = [
   { rank: 12, name: '안흥찐빵메이커', points: 420, avatar: '🥟' },
   { rank: 13, name: '도토리수령자', points: 320, avatar: '🐿️' },
   { rank: 14, name: '아침이슬향기', points: 210, avatar: '💧' },
-  { rank: 15, name: '고요나그네 (나)', points: 105, isMe: true, avatar: '🧘' }
+  { rank: 15, name: '고요나그네 (나)', points: 100, isMe: true, avatar: '🧘' }
 ];
 
 export const INITIAL_SECRET_SPOTS: SecretSpot[] = [

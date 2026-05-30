@@ -68,7 +68,7 @@ import {
   fetchUserProfileFromFirestore, 
   fetchLiveRankingsFromFirestore 
 } from './lib/firebase';
-const goyoLogo = "https://blog.kakaocdn.net/dna/dzD17v/dJMb99T3VhJ/AAAAAAAAAAAAAAAAAAAAAA04dW3oDSGnzP787X2ss9gHM2x2KAcunMlLjOwBNPSQ/img.png?credential=yqXZFxpELC7KVnFOS48ylbz2pIh7yKj8&expires=1780239599&allow_ip=&allow_referer=&signature=6nvlxjpdGlKMqTedjysvIJYm0Dg%3D";
+const goyoLogo = "https://blog.kakaocdn.net/dna/ZbKt7/dJMcafmv9cn/AAAAAAAAAAAAAAAAAAAAAMHjjcyPeA3imB-yRCujfn8DnCa4j1InhnUiVuIAnsbA/img.png?credential=yqXZFxpELC7KVnFOS48ylbz2pIh7yKj8&expires=1780239599&allow_ip=&allow_referer=&signature=A66fFzOeSIXnsjq3Nkcgh5g0Qvc%3D";
 
 export default function App() {
   // Authentication State
@@ -117,6 +117,7 @@ export default function App() {
 
   // App Navigation States
   const [activeTab, setActiveTab] = useState<'home' | 'map' | 'garden' | 'records' | 'profile'>('home');
+  const [isTaxiInfoExpanded, setIsTaxiInfoExpanded] = useState<boolean>(false);
   const [score, setScore] = useState<number>(100); // base score (initialized to 100pt as requested)
   const [walkedKm, setWalkedKm] = useState<number>(() => {
     const saved = localStorage.getItem('goyo_walked_km');
@@ -219,7 +220,10 @@ export default function App() {
   const [timerSeconds, setTimerSeconds] = useState<number>(1500); // 25:00
   const [timerTotal, setTimerTotal] = useState<number>(1500);
   const [isTimerPaused, setIsTimerPaused] = useState<boolean>(false);
-  const [todayMinutes, setTodayMinutes] = useState<number>(24);
+  const [todayMinutes, setTodayMinutes] = useState<number>(() => {
+    const saved = localStorage.getItem('goyo_today_minutes');
+    return saved ? parseInt(saved, 10) : 0;
+  });
   const [showWarningModal, setShowWarningModal] = useState<boolean>(false);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -391,6 +395,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('goyo_visited_course_ids', JSON.stringify(visitedCourseIds));
   }, [visitedCourseIds]);
+
+  useEffect(() => {
+    localStorage.setItem('goyo_today_minutes', todayMinutes.toString());
+  }, [todayMinutes]);
 
   // Real-time Firestore synchronization effect triggered on tab change or actions
   useEffect(() => {
@@ -978,6 +986,68 @@ export default function App() {
           [37.55, 128.35]
         ]);
         map.fitBounds(bounds, { padding: [12, 12] });
+
+        // 대중교통 출발지 핀 추가 (횡성시외버스터미널, KTX 횡성역)
+        const transitPoints = [
+          {
+            name: '🚌 횡성시외버스터미널 (대중교통 출발지)',
+            lat: 37.4891,
+            lng: 127.9750,
+            emoji: '🚌',
+            detail: '시외버스터미널에서 시작하는 웰니스 도보 동선'
+          },
+          {
+            name: '🚊 KTX 횡성역 (대중교통 출발지)',
+            lat: 37.4984,
+            lng: 128.0101,
+            emoji: '🚊',
+            detail: 'KTX 기차로 횡성에 도착해서 시작하는 도보 동선'
+          }
+        ];
+
+        transitPoints.forEach(pt => {
+          const transitIcon = L.divIcon({
+            html: `
+              <div class="relative flex flex-col items-center">
+                <div class="w-8 h-8 rounded-full bg-blue-50 border-2 border-emerald-800 shadow-md flex items-center justify-center">
+                  <span class="text-base">${pt.emoji}</span>
+                </div>
+                <div class="mt-1 bg-[#1d3d29] text-white px-2 py-0.5 rounded-full shadow-lg text-[8px] font-bold whitespace-nowrap">
+                  ${pt.name}
+                </div>
+              </div>
+            `,
+            className: 'custom-transit-pin',
+            iconSize: [41, 52],
+            iconAnchor: [20, 44]
+          });
+
+          const marker = L.marker([pt.lat, pt.lng], { icon: transitIcon }).addTo(map);
+          marker.bindPopup(`<div class="p-2 text-stone-850 font-sans"><h4 class="font-extrabold text-xs text-[#2a5539]">${pt.emoji} ${pt.name}</h4><p class="text-[9px] text-stone-600 mt-1">${pt.detail}</p></div>`);
+          mapMarkersRef.current.push(marker);
+        });
+
+        // 대중교통 연계 점선 (Dashed connector lines)
+        const terminalConnector: [number, number][] = [[37.4891, 127.9750], [37.4912, 127.9865]];
+        const stationConnector: [number, number][] = [[37.4984, 128.0101], [37.4925, 127.9992]];
+
+        L.polyline(terminalConnector, {
+          color: '#1d3d29',
+          weight: 3,
+          opacity: 0.75,
+          dashArray: '5, 5',
+          lineJoin: 'round',
+          lineCap: 'round'
+        }).addTo(map);
+
+        L.polyline(stationConnector, {
+          color: '#1d3d29',
+          weight: 3,
+          opacity: 0.75,
+          dashArray: '5, 5',
+          lineJoin: 'round',
+          lineCap: 'round'
+        }).addTo(map);
 
         // 코스를 돌며 핀을 단독으로 생성하고 탭 온 이벤트와 물려 하단 슬라이드 시터를 띄웁니다!
         courses.forEach((course) => {
@@ -1942,8 +2012,8 @@ export default function App() {
         
         {/* APP BRAND HEADER (No WiFi technical mockup to respect "와이파이 지워주고" mandate) */}
         <div className="bg-[#2a5539] text-[#e8f5ee] px-5 py-3.5 flex justify-between items-center shrink-0 z-30 shadow-md">
-          <div className="flex items-center gap-2">
-            <img src={goyoLogo} className="w-7 h-7 object-contain rounded-md block shrink-0" />
+          <div className="flex items-center gap-2.5">
+            <img src={goyoLogo} className="w-10 h-10 object-contain block shrink-0" />
             <div>
               <span className="font-display font-bold text-sm tracking-widest block uppercase text-white">고요로</span>
               <span className="text-[9.5px] text-[#a1d9b3] tracking-tight block -mt-0.5">GOYO-RO Wellness</span>
@@ -1974,8 +2044,8 @@ export default function App() {
         {!isLoggedIn && (
           <div className="absolute inset-0 z-50 bg-gradient-to-b from-[#ebf5ee] via-[#fafdfb] to-[#f4f7f5] flex flex-col justify-between p-6 text-stone-800 overflow-y-auto">
             <div className="text-center pt-8">
-              <div className="w-16 h-16 rounded-3xl bg-white border border-stone-200 mx-auto flex items-center justify-center shadow-[0_8px_20px_rgba(42,85,57,0.06)] animate-float mb-3 overflow-hidden">
-                <img src={goyoLogo} className="w-11 h-11 object-contain" />
+              <div className="w-22 h-22 rounded-3xl bg-white/70 border border-stone-200/60 mx-auto flex items-center justify-center shadow-[0_10px_28px_rgba(42,85,57,0.08)] animate-float mb-3 overflow-hidden p-1.5">
+                <img src={goyoLogo} className="w-18 h-18 object-contain" />
               </div>
               <h1 className="text-4xl font-extrabold tracking-[0.2em] text-[#1b432a] font-display pl-4 block">고요로</h1>
               <p className="text-[10px] text-[#4a7c59] tracking-[0.4em] uppercase mt-1 opacity-80 font-bold font-display">G O Y O - R O</p>
@@ -3013,6 +3083,86 @@ export default function App() {
                 <span className="text-[10.5px] font-bold text-[#2a5539] flex items-center justify-center gap-1">
                   🌐 가가호호 오프라인 GPS 지도망이 연동되었습니다! 마커를 탭하세요.
                 </span>
+              </div>
+
+              {/* 🚖 NEW: HOENGSEONG ROMANTIC TAXI INTEGRATION CARD */}
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50/40 border border-amber-200/80 rounded-[28px] p-4.5 shadow-sm flex flex-col gap-2.5 transition-all text-left relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-2 opacity-10 uppercase text-[50px] font-black font-sans leading-none pointer-events-none select-none text-amber-500/10">
+                  TAXI
+                </div>
+                
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">🚖</span>
+                    <div>
+                      <h3 className="text-xs font-black text-amber-950 flex items-center gap-1.5">
+                        횡성 낭만택시 스페셜 연계
+                        <span className="text-[8.5px] bg-[#1d3d29] text-white font-bold px-1.5 py-0.5 rounded-full">관광지원</span>
+                      </h3>
+                      <p className="text-[9.5px] text-amber-800 font-bold mt-0.5 leading-snug">
+                        대중교통 하차지부터 웰니스 속살 코스까지 가장 쉽고 아늑하게!
+                      </p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => { sounds.playClick(); setIsTaxiInfoExpanded(!isTaxiInfoExpanded); }}
+                    className="text-[9.5px] font-bold text-amber-900 bg-amber-200/50 px-2.5 py-1 rounded-xl hover:bg-amber-200 transition-colors cursor-pointer"
+                  >
+                    {isTaxiInfoExpanded ? '닫기 ✕' : '상세정보 ▾'}
+                  </button>
+                </div>
+
+                {/* Expanded Section with full details and Action Buttons */}
+                {isTaxiInfoExpanded ? (
+                  <div className="border-t border-amber-200/50 pt-3 flex flex-col gap-2.5 animate-fade-in text-[10px] text-stone-700">
+                    <div className="bg-white/80 p-2.5 rounded-xl border border-amber-200/30 flex flex-col gap-1.5 leading-relaxed">
+                      <div className="flex justify-between items-center text-[9.5px] text-stone-600 font-extrabold pb-1 border-b border-stone-100">
+                        <span>💰 관광 지원 파격 혜택 요금</span>
+                        <span className="text-[#2a5539]">횡성군 약 70% 지원</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="font-semibold text-stone-600">⏱️ 3시간 기본 요금</span>
+                        <span className="font-extrabold text-[#2a5539]">단 20,000원 <span className="text-[8.5px] text-stone-400 line-through">70,050원</span></span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="font-semibold text-stone-600">⏱️ 5시간 명품 요금</span>
+                        <span className="font-extrabold text-[#2a5539]">단 40,000원 <span className="text-[8.5px] text-stone-400 line-through">116,750원</span></span>
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 bg-amber-100/50 rounded-xl flex flex-col gap-1 text-[9.5px] leading-relaxed text-amber-950 font-medium">
+                      <p className="font-bold">✨ 메리트 및 혜택 :</p>
+                      <ul className="list-disc pl-3.5 space-y-0.5">
+                        <li><strong>자유로운 커스텀 동선:</strong> 내가 직접 짠 안흥찐빵, 정령숲, KTX역 목적지 조합 가능</li>
+                        <li><strong>로컬 전문 베테랑 기사님:</strong> 숨겨진 포토존과 맛집 가이드까지 무료 동반</li>
+                        <li><strong>짐 보관 &amp; 단체이동:</strong> 친구, 동료 학생들과 4인 가득 차서 엔분의일 최고의 가성비!</li>
+                      </ul>
+                    </div>
+
+                    <div className="flex gap-1.5 mt-0.5">
+                      <a 
+                        href="tel:0333405735"
+                        onClick={() => { sounds.playClick(); showToast('📞 횡성문화관광재단 서비스 센터 연락처로 연결합니다.'); }}
+                        className="flex-1 bg-white hover:bg-stone-50 border border-stone-200 text-stone-700 py-2.5 rounded-xl text-center text-[9px] font-bold flex items-center justify-center gap-1"
+                      >
+                        ☎️ 유선 문의처 (033-340-5735)
+                      </a>
+                      <a 
+                        href="https://hscf.or.kr/bbs/show_info.php?idx=383"
+                        target="_blank" 
+                        rel="noreferrer"
+                        onClick={() => { sounds.playClick(); showToast('🌐 횡성낭만택시 공식 예약 및 혜택 안내 페이지로 이동합니다.'); }}
+                        className="flex-1 bg-[#FEE500] hover:bg-[#ebd300] text-[#3c1e1e] py-2.5 rounded-xl text-center text-[9px] font-black flex items-center justify-center gap-1"
+                      >
+                        🚖 낭만택시 예약 신청 바로가기
+                      </a>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[9px] text-[#2a5539] flex items-center gap-1 cursor-pointer" onClick={() => { sounds.playClick(); setIsTaxiInfoExpanded(true); }}>
+                    <span>💡</span> 3시간 단 2만 원으로 마음껏 누비는 전용 드라이버 서비스. <strong>탭하여 혜택과 연락처 확인</strong>
+                  </p>
+                )}
               </div>
 
               {/* MANUAL LIST DISPLAY OF TRAILS TO RE-INFORCE DISCOVERY & INTUITION */}
