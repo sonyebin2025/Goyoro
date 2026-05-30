@@ -2013,7 +2013,7 @@ export default function App() {
         {/* APP BRAND HEADER (No WiFi technical mockup to respect "와이파이 지워주고" mandate) */}
         <div className="bg-[#2a5539] text-[#e8f5ee] px-5 py-3.5 flex justify-between items-center shrink-0 z-30 shadow-md">
           <div className="flex items-center gap-2.5">
-            <img src={goyoLogo} className="w-10 h-10 object-contain block shrink-0" />
+            <img src={goyoLogo} referrerPolicy="no-referrer" className="w-10 h-10 object-contain block shrink-0" />
             <div>
               <span className="font-display font-bold text-sm tracking-widest block uppercase text-white">고요로</span>
               <span className="text-[9.5px] text-[#a1d9b3] tracking-tight block -mt-0.5">GOYO-RO Wellness</span>
@@ -2045,7 +2045,7 @@ export default function App() {
           <div className="absolute inset-0 z-50 bg-gradient-to-b from-[#ebf5ee] via-[#fafdfb] to-[#f4f7f5] flex flex-col justify-between p-6 text-stone-800 overflow-y-auto">
             <div className="text-center pt-8">
               <div className="w-22 h-22 rounded-3xl bg-white/70 border border-stone-200/60 mx-auto flex items-center justify-center shadow-[0_10px_28px_rgba(42,85,57,0.08)] animate-float mb-3 overflow-hidden p-1.5">
-                <img src={goyoLogo} className="w-18 h-18 object-contain" />
+                <img src={goyoLogo} referrerPolicy="no-referrer" className="w-18 h-18 object-contain" />
               </div>
               <h1 className="text-4xl font-extrabold tracking-[0.2em] text-[#1b432a] font-display pl-4 block">고요로</h1>
               <p className="text-[10px] text-[#4a7c59] tracking-[0.4em] uppercase mt-1 opacity-80 font-bold font-display">G O Y O - R O</p>
