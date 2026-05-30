@@ -1,0 +1,47 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global safety catch-all: Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Primitive Definitions
+    function isValidId(id) { 
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-+%]+$'); 
+    }
+    
+    function incoming() { 
+      return request.resource.data; 
+    }
+    
+    function existing() { 
+      return resource.data; 
+    }
+
+    // Strict validator for User entity schema
+    function isValidUser(data) {
+      return data.nickname is string && data.nickname.size() <= 64 && data.nickname.size() >= 1
+          && data.name is string && data.name.size() <= 64 && data.name.size() >= 1
+          && data.password is string && data.password.size() <= 128 && data.password.size() >= 4
+          && (data.secretAnswer == null || (data.secretAnswer is string && data.secretAnswer.size() <= 128))
+          && data.avatar is string && data.avatar.size() <= 64
+          && data.points is number
+          && data.todayMinutes is number;
+    }
+
+    // Users Collection rules
+    match /users/{userId} {
+      // Leaderboard lists and individual profiles are publicly read
+      allow read: if isValidId(userId);
+      
+      // Updates and Creates are allowed if document ID and content schema are validated
+      allow create: if isValidId(userId) && isValidUser(incoming());
+      allow update: if isValidId(userId) && isValidUser(incoming());
+      
+      // Disallow deleting user accounts through client
+      allow delete: if false;
+    }
+  }
+}

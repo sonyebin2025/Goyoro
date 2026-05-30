@@ -1,0 +1,55 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile and Quest Progress",
+      "description": "Stores user account details, credentials, custom avatar selections, and wellness points for real-time ranking.",
+      "type": "object",
+      "properties": {
+        "nickname": {
+          "type": "string",
+          "description": "Unique user credentials nickname"
+        },
+        "name": {
+          "type": "string",
+          "description": "Real name of the traveler"
+        },
+        "password": {
+          "type": "string",
+          "description": "Credentials password"
+        },
+        "secretAnswer": {
+          "type": "string",
+          "description": "Answer to security question"
+        },
+        "avatar": {
+          "type": "string",
+          "description": "Selected avatar emoji or key"
+        },
+        "points": {
+          "type": "number",
+          "description": "Accumulated wellness score points"
+        },
+        "todayMinutes": {
+          "type": "number",
+          "description": "Minutes of meditation today"
+        },
+        "revealedSpotIds": {
+          "type": "array",
+          "description": "List of discovered secret scenic spots"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Last timestamp the user profile was synced"
+        }
+      },
+      "required": ["nickname", "name", "password", "points"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Collection of all travelers on Goyo-Ro wellness. Accessible for real-time leaderboards."
+    }
+  }
+}

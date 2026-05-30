@@ -63,6 +63,11 @@ import {
   JournalLog, 
   INITIAL_JOURNAL_LOGS 
 } from './types';
+import { 
+  syncUserProfileToFirestore, 
+  fetchUserProfileFromFirestore, 
+  fetchLiveRankingsFromFirestore 
+} from './lib/firebase';
 const goyoLogo = "https://blog.kakaocdn.net/dna/dzD17v/dJMb99T3VhJ/AAAAAAAAAAAAAAAAAAAAAA04dW3oDSGnzP787X2ss9gHM2x2KAcunMlLjOwBNPSQ/img.png?credential=yqXZFxpELC7KVnFOS48ylbz2pIh7yKj8&expires=1780239599&allow_ip=&allow_referer=&signature=6nvlxjpdGlKMqTedjysvIJYm0Dg%3D";
 
 export default function App() {
@@ -78,6 +83,20 @@ export default function App() {
   const [signupName, setSignupName] = useState<string>('');
   const [signupPassword, setSignupPassword] = useState<string>('');
   const [signupSecretAnswer, setSignupSecretAnswer] = useState<string>('');
+
+  // Firestore Synchronization & User Custom Profile States
+  const [userAvatar, setUserAvatar] = useState<string>(() => localStorage.getItem('goyo_user_avatar') || '🧘');
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
+  const [profileEditNickname, setProfileEditNickname] = useState<string>('');
+  const [profileEditAvatar, setProfileEditAvatar] = useState<string>('🧘');
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string>('아직 진행되지 않음');
+
+  // Space-Sensing Camera Depth & AR Mapping States
+  const [isArCameraOpen, setIsArCameraOpen] = useState<boolean>(false);
+  const [arTargetSpirits, setArTargetSpirits] = useState<Array<{ id: string; name: string; emoji: string; x: number; y: number; z: number; color: string }>>([]);
+  const [arDepthTarget, setArDepthTarget] = useState<{ x: number; y: number; z: number } | null>(null);
+  const [isArScanning, setIsArScanning] = useState<boolean>(false);
 
   // Password Recovery state
   const [findPasswordNickname, setFindPasswordNickname] = useState<string>('');
@@ -373,6 +392,13 @@ export default function App() {
     localStorage.setItem('goyo_visited_course_ids', JSON.stringify(visitedCourseIds));
   }, [visitedCourseIds]);
 
+  // Real-time Firestore synchronization effect triggered on tab change or actions
+  useEffect(() => {
+    if (isLoggedIn && username) {
+      handleSyncWithFirestore();
+    }
+  }, [activeTab, isLoggedIn]);
+
   // Handle device orientation for face-down detection
   useEffect(() => {
     const handleOrientation = (e: DeviceOrientationEvent) => {
@@ -478,6 +504,220 @@ export default function App() {
     return [defaultUser];
   };
 
+  // Firestore Synchronizer Utility
+  const handleSyncWithFirestore = async (overrideName?: string, overrideAvatar?: string) => {
+    const activeName = overrideName || username;
+    const activeAvatar = overrideAvatar || userAvatar;
+    if (!activeName) {
+      showToast('⚠️ 동기화할 수 있는 로그인된 사용자 정보가 없습니다.');
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      const userPayload = {
+        nickname: activeName,
+        name: activeName,
+        avatar: activeAvatar,
+        points: score,
+        todayMinutes: todayMinutes,
+        revealedSpotIds: secretSpots.filter(s => s.isRevealed).map(s => s.id),
+        updatedAt: new Date().toISOString()
+      };
+
+      // Write to Firestore db
+      await syncUserProfileToFirestore(userPayload);
+
+      // Pull down updated database-backed ranking list
+      const remoteUsers = await fetchLiveRankingsFromFirestore();
+      
+      let finalRankings: RankingUser[] = [];
+      if (remoteUsers.length === 0) {
+        // First boot of Firebase database: Seed our lovely INITIAL_RANKINGS
+        for (const rUser of INITIAL_RANKINGS) {
+          await syncUserProfileToFirestore({
+            nickname: rUser.name,
+            name: rUser.name,
+            avatar: rUser.avatar,
+            points: rUser.points,
+            todayMinutes: rUser.isMe ? todayMinutes : 24,
+            revealedSpotIds: [],
+            updatedAt: new Date().toISOString()
+          });
+        }
+        // Fetch again after seeding
+        const doubleCheckedUsers = await fetchLiveRankingsFromFirestore();
+        finalRankings = doubleCheckedUsers.map((u, i) => ({
+          rank: i + 1,
+          name: u.nickname,
+          points: u.points,
+          avatar: u.avatar,
+          isMe: u.nickname.toLowerCase() === activeName.toLowerCase()
+        }));
+      } else {
+        // Map fetched profiles as visual leaderboard
+        finalRankings = remoteUsers.map((u, i) => ({
+          rank: i + 1,
+          name: u.nickname,
+          points: u.points,
+          avatar: u.avatar,
+          isMe: u.nickname.toLowerCase() === activeName.toLowerCase()
+        }));
+      }
+
+      setRankings(finalRankings);
+      setLastSyncTime(new Date().toLocaleTimeString());
+    } catch (err) {
+      console.error('Firestore sync failed:', err);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Restore state from Firestore when logging in on another device
+  const handleRestoreFromFirestore = async (nickname: string) => {
+    if (!nickname) return;
+    setIsSyncing(true);
+    try {
+      const profile = await fetchUserProfileFromFirestore(nickname);
+      if (profile) {
+        setUsername(profile.nickname);
+        setUserAvatar(profile.avatar);
+        localStorage.setItem('goyo_logged_user', profile.nickname);
+        localStorage.setItem('goyo_user_avatar', profile.avatar);
+
+        if (profile.points && profile.points > 0) {
+          setScore(profile.points);
+          localStorage.setItem('goyo_user_score', profile.points.toString());
+        }
+        if (profile.todayMinutes) {
+          setTodayMinutes(profile.todayMinutes);
+        }
+        if (profile.revealedSpotIds && profile.revealedSpotIds.length > 0) {
+          const updatedSpots = secretSpots.map(s => ({
+            ...s,
+            isRevealed: profile.revealedSpotIds.includes(s.id)
+          }));
+          setSecretSpots(updatedSpots);
+          localStorage.setItem('goyo_secret_spots', JSON.stringify(updatedSpots));
+        }
+
+        // Apply updated rankings
+        const remoteUsers = await fetchLiveRankingsFromFirestore();
+        if (remoteUsers.length > 0) {
+          const list = remoteUsers.map((u, i) => ({
+            rank: i + 1,
+            name: u.nickname,
+            points: u.points,
+            avatar: u.avatar,
+            isMe: u.nickname.toLowerCase() === nickname.toLowerCase()
+          }));
+          setRankings(list);
+        }
+
+        showToast(`🔮 클라우드(${profile.nickname})에서 미션 이력과 포인트(${profile.points}pt)를 성공적으로 복원했습니다!`);
+        sounds.playSuccess();
+      } else {
+        // No snapshot found? Seed local state as new cloud record
+         await syncUserProfileToFirestore({
+           nickname: nickname,
+           name: nickname,
+           avatar: userAvatar,
+           points: score,
+           todayMinutes: todayMinutes,
+           revealedSpotIds: secretSpots.filter(s => s.isRevealed).map(s => s.id),
+           updatedAt: new Date().toISOString()
+         });
+         setLastSyncTime(new Date().toLocaleTimeString());
+      }
+    } catch (e) {
+      console.error('Remote restoration failed:', e);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Space-Sensing Camera (Depth & AR Mapping)
+  const handleOpenArCamera = () => {
+    triggerClick();
+    setIsArCameraOpen(true);
+    setIsArScanning(true);
+    
+    // Seed floaty virtual entities with depth parameters
+    const seedArSpirits = [
+      { id: 'ar-1', name: '🌌 태기산 오로라 정령', emoji: '🧚✨', x: 25, y: 35, z: 1.1, color: '#10b981' },
+      { id: 'ar-2', name: '💧 청태산 원시 이슬구름 요정', emoji: '💧☁️', x: 75, y: 25, z: 0.7, color: '#3b82f6' },
+      { id: 'ar-3', name: '🐮 횡성 수련 전설 황소 요정', emoji: '🐂🌟', x: 40, y: 65, z: 2.3, color: '#f59e0b' },
+      { id: 'ar-4', name: '🥟 안흥 전통 누룩요정', emoji: '🥟🌸', x: 60, y: 50, z: 1.5, color: '#ec4899' }
+    ];
+    setArTargetSpirits(seedArSpirits);
+    setArDepthTarget(null);
+
+    // Initialise real camera feed inside video ref
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        .then(stream => {
+          cameraStreamRef.current = stream;
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+          }
+        })
+        .catch(err => {
+          console.error('AR camera failed to start:', err);
+        });
+    }
+  };
+
+  const handleCloseArCamera = () => {
+    triggerClick();
+    setIsArCameraOpen(false);
+    setIsArScanning(false);
+    if (cameraStreamRef.current) {
+      cameraStreamRef.current.getTracks().forEach(track => track.stop());
+      cameraStreamRef.current = null;
+    }
+  };
+
+  const handleCaptureArSpirit = async (spirit: any) => {
+    sounds.playSuccess();
+    const addScore = 50;
+    const nextScore = score + addScore;
+    setScore(nextScore);
+    localStorage.setItem('goyo_user_score', nextScore.toString());
+
+    // Filter captured element
+    setArTargetSpirits(prev => prev.filter(s => s.id !== spirit.id));
+
+    showToast(`🌌 [AR 공간 포획] 깊이 ${spirit.z}m 평면에 매핑된 "${spirit.name}" 구조 치료 완료! (+50pt)`);
+
+    // Write real-time sync with database
+    try {
+      await syncUserProfileToFirestore({
+        nickname: username,
+        name: username,
+        avatar: userAvatar,
+        points: nextScore,
+        todayMinutes: todayMinutes,
+        revealedSpotIds: secretSpots.filter(s => s.isRevealed).map(s => s.id),
+        updatedAt: new Date().toISOString()
+      });
+
+      const freshList = await fetchLiveRankingsFromFirestore();
+      if (freshList.length > 0) {
+        setRankings(freshList.map((u, i) => ({
+          rank: i + 1,
+          name: u.nickname,
+          points: u.points,
+          avatar: u.avatar,
+          isMe: u.nickname.toLowerCase() === username.toLowerCase()
+        })));
+      }
+      setLastSyncTime(new Date().toLocaleTimeString());
+    } catch (e) {
+      console.error('Sync failed during capture:', e);
+    }
+  };
+
   const handleSignup = (e: React.FormEvent) => {
     e.preventDefault();
     triggerClick();
@@ -571,9 +811,8 @@ export default function App() {
     setUsername(resolvedName);
     localStorage.setItem('goyo_logged_user', resolvedName);
     
-    // Update rankings dynamically to display raw user customized name
-    const modifiedRankings = rankings.map(r => r.isMe ? { ...r, name: `${resolvedName} (나)` } : r);
-    setRankings(modifiedRankings);
+    // Attempt remote restore from Firestore (allows loading records, profiles, and score across devices)
+    handleRestoreFromFirestore(resolvedName);
 
     showToast(`🔑 환영합니다, ${matchedUser.name} 님! 고요로 웰니스 여정을 시작할게요.`);
     sounds.playSuccess();
@@ -2666,6 +2905,33 @@ export default function App() {
                 </div>
               </div>
 
+              {/* 💡 NEW UNIQUE MVP FEATURE 3: NEW INTERACTIVE 3D SPACE-SENSING DEPTH AR CAMERA */}
+              <div className="px-4 mt-2">
+                <div className="bg-gradient-to-r from-stone-900 to-[#1e2e23] text-stone-100 p-5 rounded-[28px] shadow-lg border border-emerald-950/30 flex flex-col gap-3.5 relative overflow-hidden">
+                  <div className="absolute right-0 bottom-0 translate-x-4 translate-y-4 w-28 h-28 bg-[#2a5539]/30 rounded-full blur-2xl pointer-events-none"></div>
+                  
+                  <div className="flex flex-col gap-1 relative z-10">
+                    <span className="text-[8.5px] bg-cyan-400/25 text-cyan-200 font-extrabold px-2.5 py-0.5 rounded-full w-fit tracking-wider border border-cyan-400/30 uppercase animate-pulse">
+                      ⚡ AR 공간인식 실감카메라
+                    </span>
+                    <h3 className="text-xs font-black text-white mt-1.5 flex items-center gap-1.5">
+                      🌌 횡성 태고의 바람정령 탐화 렌즈
+                    </h3>
+                    <p className="text-[10px] text-stone-300 leading-normal mt-1">
+                      카메라 렌즈를 비춰 주변의 3D 공간을 스캔하세요. 지표면 깊이(Depth)를 나누어 가상의 횡성 웰니스 자연 정령들이 공간 속에 실제로 공중 매핑됩니다.
+                    </p>
+                  </div>
+
+                  <button 
+                    onClick={handleOpenArCamera}
+                    className="w-full bg-cyan-500 hover:bg-cyan-600 font-black text-xs text-stone-950 py-3 rounded-2xl flex items-center justify-center gap-1.5 shadow-md cursor-pointer transition-all active:scale-97 z-10"
+                  >
+                    <span>🚀 AR 라이다 공간 렌즈 기동</span>
+                    <span className="text-[9.5px] bg-stone-950/20 text-stone-950 px-1.5 py-0.5 rounded font-bold">50pt 지급</span>
+                  </button>
+                </div>
+              </div>
+
               {/* QUICK START TIMER MODULE */}
               <div className="p-4 mt-1">
                 <div className="bg-[#FAF9F5] border border-stone-200/80 p-5 rounded-[28px] shadow-sm flex items-center justify-between gap-2.5">
@@ -3237,19 +3503,42 @@ export default function App() {
                 ))}
               </div>
 
-              {/* SUB TAB content 1: RANKING (디인예왕김용수교수님 1등, 15인 제한 랭킹, 시간 기준) */}
-              {recordsSubTab === 'ranking' && (
-                <div className="flex flex-col gap-3">
-                  <div className="bg-[#FAF9F5] p-4 rounded-2xl border border-stone-200/55 flex justify-between items-center">
-                    <div>
-                      <span className="text-[10px] text-[#2a5539] font-bold">내 가마목 명상순위 (명상/디톡스 누적 시간 기준)</span>
-                      <h4 className="text-sm font-extrabold text-stone-700">전국 15위 : {username || '나그네'} 님</h4>
+              {/* SUB TAB content 1: RANKING (디인예왕김용수교수님 1등, 실시간 Firestore 랭킹 전산 반영) */}
+              {recordsSubTab === 'ranking' && (() => {
+                const myRankIndex = rankings.findIndex(r => r.isMe || r.name.toLowerCase() === username.toLowerCase() || r.name.toLowerCase() === `${username} (나)`.toLowerCase());
+                const myRank = myRankIndex !== -1 ? myRankIndex + 1 : rankings.length;
+                return (
+                  <div className="flex flex-col gap-3">
+                    <div className="bg-[#FAF9F5] p-3.5 rounded-2xl border border-stone-200/55 flex justify-between items-center">
+                      <div>
+                        <span className="text-[10px] text-[#2a5539] font-bold block">🏆 실시간 랭킹 (누적 치유 포인트 기준)</span>
+                        <h4 className="text-xs font-extrabold text-stone-700 mt-1">
+                          현재 순위: <span className="text-[#2a5539] text-base font-black underline decoration-2 decoration-emerald-200">{myRank}위</span> ({username || '익명'} 나그네 님)
+                        </h4>
+                      </div>
+                      <span className="bg-[#2a5539] text-white text-[10.5px] font-black px-3 py-1.5 rounded-full shadow-sm">{score} pt</span>
                     </div>
-                    <span className="bg-[#2a5539] text-white text-[10.5px] font-bold px-3 py-1 rounded-full">{todayMinutes}분</span>
-                  </div>
 
-                  <div className="bg-white border border-stone-200/80 rounded-2xl overflow-hidden divide-y divide-stone-100 max-h-96 overflow-y-auto no-scrollbar shadow-sm">
-                    {rankings.map((user) => (
+                    <button
+                      onClick={() => { triggerClick(); handleSyncWithFirestore(); }}
+                      disabled={isSyncing}
+                      className="w-full h-10 bg-[#FAF9F5] hover:bg-[#F5F1E5] text-[#2a5539] font-extrabold text-xs rounded-xl flex items-center justify-center gap-1.5 border border-stone-250 shadow-sm transition-all cursor-pointer active:scale-98"
+                    >
+                      {isSyncing ? (
+                        <>
+                          <span className="w-3.5 h-3.5 rounded-full border-2 border-[#2a5539]/30 border-t-[#2a5539] animate-spin"></span>
+                          <span>Firestore 불러오는 중...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>🔄 실시간 랭킹 서버 동기화</span>
+                          <span className="text-[9px] bg-[#2a5539]/10 text-[#2a5539] px-1.5 py-0.5 rounded">마지막: {lastSyncTime}</span>
+                        </>
+                      )}
+                    </button>
+
+                    <div className="bg-white border border-stone-200/80 rounded-2xl overflow-hidden divide-y divide-stone-100 max-h-80 overflow-y-auto no-scrollbar shadow-sm">
+                      {rankings.map((user) => (
                       <div 
                         key={user.rank} 
                         className={`flex justify-between items-center px-4 py-3 text-xs ${
@@ -3286,7 +3575,7 @@ export default function App() {
                     ))}
                   </div>
                 </div>
-              )}
+              )})()}
 
               {/* SUB TAB content 2: SOUNDS */}
               {recordsSubTab === 'sounds' && (
@@ -3716,11 +4005,30 @@ export default function App() {
                 </span>
 
                 <div className="w-16 h-16 rounded-full bg-[#f1fcf4] flex items-center justify-center text-3xl shadow-inner border border-stone-100 my-3">
-                  🧘
+                  {userAvatar}
                 </div>
 
                 <h3 className="text-sm font-bold text-stone-700">{username || '공주'} 님</h3>
                 <p className="text-[10.5px] text-stone-400 mt-1">도보 가칭 VIP 등급 (새싹 잎)</p>
+
+                <div className="flex flex-col items-center gap-1.5 mt-2">
+                  <button
+                    onClick={() => {
+                      triggerClick();
+                      setProfileEditNickname(username);
+                      setProfileEditAvatar(userAvatar);
+                      setIsProfileModalOpen(true);
+                    }}
+                    className="px-4 py-1.5 bg-[#2a5539]/10 hover:bg-[#2a5539]/20 text-[#2a5539] rounded-full text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+                  >
+                    ⚙️ 프로필 편집 & 랭킹 동기화
+                  </button>
+
+                  <div className="text-[8.5px] text-stone-400 font-mono flex items-center gap-1 bg-stone-50 px-2 py-0.5 rounded border border-stone-200/50">
+                    <span className={`w-1 h-1 rounded-full ${isSyncing ? 'bg-amber-400 animate-spin' : 'bg-emerald-500'}`}></span>
+                    <span>클라우드 동기화: {lastSyncTime}</span>
+                  </div>
+                </div>
 
                 <div className="w-full h-px bg-stone-100 my-3"></div>
 
@@ -4016,7 +4324,7 @@ export default function App() {
                 </p>
               </div>
 
-              <div className="my-4 border-t border-stone-200 pt-3 flex flex-col gap-2">
+               <div className="my-4 border-t border-stone-200 pt-3 flex flex-col gap-2">
                 <div 
                   onClick={() => { triggerClick(); setShowQuestPromptModal(false); setActiveTab('home'); }} 
                   className="bg-[#2a5539]/5 hover:bg-[#2a5539]/10 p-2 rounded-xl flex items-center gap-2 cursor-pointer transition-all border border-[#2a5539]/10"
@@ -4046,6 +4354,233 @@ export default function App() {
                 className="w-full bg-[#2a5539] hover:bg-[#1f3f2a] text-white py-2.5 rounded-xl text-xs font-bold shadow-md cursor-pointer text-center mt-1"
               >
                 🌾 퀘스트 해결하러 가기!
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* PROFILE EDIT MODAL WITH FIRESTORE AUTO-SYNC */}
+        {isProfileModalOpen && (
+          <div className="absolute inset-0 bg-black/75 flex items-center justify-center z-50 p-6 backdrop-blur-sm">
+            <div className="bg-[#FAF9F5] text-stone-700 w-full max-w-[340px] rounded-[32px] p-6 shadow-2xl border border-stone-200 animate-scale-up relative">
+              <button 
+                type="button"
+                onClick={() => { triggerClick(); setIsProfileModalOpen(false); }}
+                className="absolute top-4 right-4 text-stone-400 hover:text-stone-600 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="text-center mb-5">
+                <span className="text-sm font-bold text-[#2a5539] uppercase tracking-wide">⚙️ 프로필 편집</span>
+                <h2 className="text-base font-extrabold text-stone-800 mt-1">나그네 프로필 및 아바타 설정</h2>
+                <p className="text-[10px] text-stone-400 mt-1">클라우드와 연결되어 실시간 랭킹에 즉시 보정 반영됩니다.</p>
+              </div>
+
+              <div className="flex flex-col gap-4">
+                {/* Nickname Input */}
+                <div className="flex flex-col gap-1 text-left">
+                  <label className="text-[9.5px] text-[#2a5539] font-black uppercase">대행 명칭 (닉네임)</label>
+                  <input 
+                    type="text"
+                    value={profileEditNickname}
+                    onChange={(e) => setProfileEditNickname(e.target.value)}
+                    className="bg-white border border-stone-250 rounded-xl px-3 py-2.5 text-xs text-stone-700 font-extrabold outline-none focus:border-[#2a5539] transition-all"
+                    placeholder="변경할 닉네임을 기입하세요"
+                    maxLength={15}
+                  />
+                </div>
+
+                {/* Avatar Selector (Emojis representing available entities/personalities) */}
+                <div className="flex flex-col gap-1.5 text-left">
+                  <label className="text-[9.5px] text-[#2a5539] font-black uppercase">나그네 대표 아바타 선택</label>
+                  <div className="grid grid-cols-6 gap-2 bg-white border border-stone-250 rounded-2xl p-2.5 max-h-24 overflow-y-auto no-scrollbar">
+                    {['🧘', '🧚', '🤠', '🧝', '👴', '👵', '🦦', '🐮', '💧', '🌲', '🥟', '👑', '🌈', '🔥'].map((emoji) => {
+                      const isSelected = profileEditAvatar === emoji;
+                      return (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => { triggerClick(); setProfileEditAvatar(emoji); }}
+                          className={`text-xl p-1.5 rounded-xl cursor-pointer transition-all hover:scale-110 h-10 w-10 flex items-center justify-center ${
+                            isSelected ? 'bg-[#2a5539]/15 border-2 border-[#2a5539] scale-110 shadow-inner' : 'bg-stone-50 border border-stone-150'
+                          }`}
+                        >
+                          {emoji}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex flex-col gap-2 mt-2">
+                  <button
+                    type="button"
+                    disabled={isSyncing}
+                    onClick={async () => {
+                      triggerClick();
+                      if (!profileEditNickname) {
+                        showToast('⚠️ 닉네임을 빈칸으로 둘 수 없습니다.');
+                        return;
+                      }
+                      
+                      // Update local state
+                      setUsername(profileEditNickname);
+                      setUserAvatar(profileEditAvatar);
+                      localStorage.setItem('goyo_logged_user', profileEditNickname);
+                      localStorage.setItem('goyo_user_avatar', profileEditAvatar);
+
+                      // Trigger firestore sync immediately
+                      await handleSyncWithFirestore(profileEditNickname, profileEditAvatar);
+                      
+                      setIsProfileModalOpen(false);
+                      showToast('✅ 프로필이 완료되어 Firestore와 안전하게 연동 보정되었습니다!');
+                    }}
+                    className="w-full bg-[#2a5539] hover:bg-[#1f3f2a] disabled:bg-stone-300 text-white py-2.5 rounded-xl text-xs font-bold shadow-md cursor-pointer text-center"
+                  >
+                    {isSyncing ? 'Firestore에 저장 중...' : '💾 프로필 저장 & 랭킹 동기화하기'}
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={() => { triggerClick(); setIsProfileModalOpen(false); }}
+                    className="w-full bg-stone-150 hover:bg-stone-200 text-stone-500 py-2.5 rounded-xl text-xs font-bold cursor-pointer text-center"
+                  >
+                    취소
+                  </button>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* AR CO-ORDINATE DETECTING SPACE LENS OVERLAY MODAL */}
+        {isArCameraOpen && (
+          <div className="absolute inset-0 bg-[#0c0f0d] text-white flex flex-col justify-between p-5 z-55 overflow-y-auto no-scrollbar">
+            {/* Header */}
+            <div className="flex justify-between items-center pb-2 border-b border-white/10 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping"></div>
+                <span className="text-[10px] text-cyan-400 font-extrabold uppercase tracking-widest">3D Lidar Spatial Depth Lens</span>
+              </div>
+              <button 
+                onClick={handleCloseArCamera}
+                className="w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white cursor-pointer"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Subtitles with distance guide */}
+            <div className="text-center my-3 shrink-0">
+              <span className="text-[9px] bg-cyan-950/80 text-cyan-300 px-2.5 py-0.5 rounded font-black tracking-wider border border-cyan-500/30">
+                공간 탐지 각도: 120° 와이드 뷰
+              </span>
+              <h2 className="text-sm font-black text-white mt-1.5">🌌 횡성 바람 요정 깊이 분할 구출 Lens</h2>
+              <p className="text-[10px] text-white/50 mt-1 px-4">
+                바람발전기 및 잣나무 언덕의 3D 공간을 인식 중입니다. 화면을 탭하면 라이다 펄스를 쏘아 거리를 측정(Depth Map)하며, 숨은 요정을 방생 구출할 수 있습니다!
+              </p>
+            </div>
+
+            {/* Native Camera View with AR Overlayers */}
+            <div className="relative aspect-[4/3] w-full bg-black rounded-3xl border border-white/15 overflow-hidden shadow-2xl flex-1 max-h-[360px] flex items-center justify-center group">
+              
+              {/* Live Video component */}
+              <video 
+                ref={videoRef} 
+                autoPlay 
+                playsInline 
+                muted 
+                className="w-full h-full object-cover select-none pointer-events-none"
+              />
+
+              {/* 3D Wireframe Overlay Line Matrix to look intensely high-quality AR */}
+              <div className="absolute inset-0 border border-cyan-500/10 grid grid-cols-4 grid-rows-4 pointer-events-none opacity-40">
+                {Array.from({ length: 16 }).map((_, i) => (
+                  <div key={i} className="border-[0.5px] border-cyan-500/20 relative">
+                    <div className="absolute top-0 left-0 w-1 p-px bg-cyan-400/40"></div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Concentric Depth Circles centering user's focus */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="w-16 h-16 rounded-full border border-cyan-500/30 animate-pulse flex items-center justify-center">
+                  <div className="w-3 h-3 rounded-full bg-cyan-400 opacity-70"></div>
+                </div>
+              </div>
+
+              {/* Interactive laser-pointing locator */}
+              <div 
+                className="absolute inset-0 cursor-crosshair"
+                onClick={(e) => {
+                  triggerClick();
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const clickX = ((e.clientX - rect.left) / rect.width) * 100;
+                  const clickY = ((e.clientY - rect.top) / rect.height) * 100;
+                  // Calculate arbitrary depth metric between 0.3m and 3.0m
+                  const randomDepth = +(0.3 + (clickY / 30)).toFixed(2);
+                  setArDepthTarget({ x: clickX, y: clickY, z: randomDepth });
+                  sounds.playClick();
+                }}
+              >
+                {/* Visual click target representing actual 3D Lidar point */}
+                {arDepthTarget && (
+                  <div 
+                    style={{ left: `${arDepthTarget.x}%`, top: `${arDepthTarget.y}%` }}
+                    className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none z-10"
+                  >
+                    <div className="w-6 h-6 rounded-full border-2 border-cyan-400 animate-ping absolute"></div>
+                    <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 z-10"></div>
+                    <span className="bg-cyan-900 border border-cyan-400/60 text-[8.5px] font-mono text-cyan-200 px-1.5 py-0.5 rounded shadow mt-1.5 block whitespace-nowrap">
+                      🚩 레이저 펄스: {arDepthTarget.z}m (Depth)
+                    </span>
+                  </div>
+                )}
+
+                {/* Floating spirits to capture */}
+                {arTargetSpirits.map((spirit) => (
+                  <div
+                    key={spirit.id}
+                    style={{ left: `${spirit.x}%`, top: `${spirit.y}%` }}
+                    onClick={(e) => {
+                      e.stopPropagation(); // prevent overlapping surface coordinates clicks
+                      handleCaptureArSpirit(spirit);
+                    }}
+                    className="absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center cursor-pointer hover:scale-125 transition-all z-20 group anim-float"
+                  >
+                    {/* Pulsing Aura halo */}
+                    <div 
+                      style={{ borderColor: spirit.color }}
+                      className="w-12 h-12 rounded-full border-2 border-dashed absolute animate-[spin_5s_linear_infinite] opacity-60"
+                    ></div>
+                    <div className="text-3xl animate-[bounce_1.5s_infinite] select-none">
+                      {spirit.emoji}
+                    </div>
+                    
+                    <span className="bg-[#1c241e] border border-white/20 text-[8px] font-extrabold px-2 py-0.5 rounded shadow mt-1 block tracking-tight whitespace-nowrap text-white">
+                      {spirit.name} (거리: {spirit.z}m)
+                    </span>
+                  </div>
+                ))}
+
+              </div>
+            </div>
+
+            {/* Controls */}
+            <div className="flex flex-col gap-2 mt-4 shrink-0">
+              <div className="flex justify-between items-center text-stone-400 text-[10px] bg-white/5 p-2 rounded-xl border border-white/10 px-3">
+                <span>남은 공간 증강요정: <span className="font-bold text-cyan-400 font-mono">{arTargetSpirits.length}마리</span></span>
+                <span>LiDAR 센서 피드: <span className="font-bold text-[#7ab893]">정상 작동 중</span></span>
+              </div>
+              
+              <button
+                onClick={handleCloseArCamera}
+                className="w-full bg-[#2a5539] hover:bg-[#1f3f2a] text-white py-3 rounded-2xl text-xs font-bold tracking-wide shadow-md cursor-pointer"
+              >
+                스페이스 렌즈 닫기 (이완 완료)
               </button>
             </div>
           </div>
