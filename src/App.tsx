@@ -69,6 +69,28 @@ import {
   fetchLiveRankingsFromFirestore 
 } from './lib/firebase';
 
+import spiritJjin from './assets/images/spirit_jjin_1779974947357.png';
+import spiritDodo from './assets/images/spirit_dodo_1779974966306.png';
+import spiritBanggu from './assets/images/spirit_banggu_1779974994325.png';
+import spiritDaldalyi from './assets/images/spirit_daldalyi_1779975012244.png';
+import spiritMeokGureum from './assets/images/spirit_meok_gureum_1779975030912.png';
+
+const LOCAL_SPIRIT_IMAGES: Record<string, string> = {
+  jjin: spiritJjin,
+  dodo: spiritDodo,
+  banggu: spiritBanggu,
+  daldalyi: spiritDaldalyi,
+  meok_gureum: spiritMeokGureum,
+};
+
+// Map INITIAL_SPIRITS to include local image assets
+const INITIAL_SPIRITS_WITH_LOCAL = INITIAL_SPIRITS.map(s => {
+  if (LOCAL_SPIRIT_IMAGES[s.id]) {
+    return { ...s, imageUrl: LOCAL_SPIRIT_IMAGES[s.id] };
+  }
+  return s;
+});
+
 export default function App() {
   // Authentication State
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
@@ -151,17 +173,16 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved) as Spirit[];
         return parsed.map(s => {
-          const match = INITIAL_SPIRITS.find(init => init.id === s.id);
-          if (match && match.imageUrl) {
-            return { ...s, imageUrl: match.imageUrl };
+          if (LOCAL_SPIRIT_IMAGES[s.id]) {
+            return { ...s, imageUrl: LOCAL_SPIRIT_IMAGES[s.id] };
           }
-          return s;
+          return { ...s, imageUrl: s.imageUrl || undefined };
         });
       } catch (e) {
         console.error(e);
       }
     }
-    return INITIAL_SPIRITS;
+    return INITIAL_SPIRITS_WITH_LOCAL;
   });
   const [selectedSpirit, setSelectedSpirit] = useState<Spirit>(() => {
     const saved = localStorage.getItem('goyo_spirits');
@@ -170,15 +191,14 @@ export default function App() {
         const parsed = JSON.parse(saved) as Spirit[];
         if (parsed && parsed.length > 0) {
           const s = parsed[0];
-          const match = INITIAL_SPIRITS.find(init => init.id === s.id);
-          if (match && match.imageUrl) {
-            return { ...s, imageUrl: match.imageUrl };
+          if (LOCAL_SPIRIT_IMAGES[s.id]) {
+            return { ...s, imageUrl: LOCAL_SPIRIT_IMAGES[s.id] };
           }
           return s;
         }
       } catch (e) {}
     }
-    return INITIAL_SPIRITS[0];
+    return INITIAL_SPIRITS_WITH_LOCAL[0];
   });
   const [courses, setCourses] = useState<Course[]>(INITIAL_COURSES);
 
@@ -3701,7 +3721,7 @@ export default function App() {
                             {user.rank === 1 ? '👑' : user.rank}
                           </span>
                           {(() => {
-                            const match = INITIAL_SPIRITS.find(s => s.emoji === user.avatar);
+                            const match = INITIAL_SPIRITS_WITH_LOCAL.find(s => s.emoji === user.avatar);
                             if (match && match.imageUrl) {
                               return (
                                 <TransparentImage 
@@ -4050,7 +4070,7 @@ export default function App() {
                           <div className="flex justify-between items-center border-b border-stone-100 pb-2.5">
                             <div className="flex items-center gap-2">
                               {(() => {
-                                const match = INITIAL_SPIRITS.find(s => 
+                                const match = INITIAL_SPIRITS_WITH_LOCAL.find(s => 
                                   letter.writer.includes(s.name) || s.emoji === letter.avatar
                                 );
                                 if (match && match.imageUrl) {
