@@ -69,27 +69,8 @@ import {
   fetchLiveRankingsFromFirestore 
 } from './lib/firebase';
 
-import spiritJjin from './assets/images/spirit_jjin_1779974947357.png';
-import spiritDodo from './assets/images/spirit_dodo_1779974966306.png';
-import spiritBanggu from './assets/images/spirit_banggu_1779974994325.png';
-import spiritDaldalyi from './assets/images/spirit_daldalyi_1779975012244.png';
-import spiritMeokGureum from './assets/images/spirit_meok_gureum_1779975030912.png';
-
-const LOCAL_SPIRIT_IMAGES: Record<string, string> = {
-  jjin: spiritJjin,
-  dodo: spiritDodo,
-  banggu: spiritBanggu,
-  daldalyi: spiritDaldalyi,
-  meok_gureum: spiritMeokGureum,
-};
-
-// Map INITIAL_SPIRITS to include local image assets
-const INITIAL_SPIRITS_WITH_LOCAL = INITIAL_SPIRITS.map(s => {
-  if (LOCAL_SPIRIT_IMAGES[s.id]) {
-    return { ...s, imageUrl: LOCAL_SPIRIT_IMAGES[s.id] };
-  }
-  return s;
-});
+// Map INITIAL_SPIRITS to include remote image assets (CORS issue resolved on TransparentImage view)
+const INITIAL_SPIRITS_WITH_LOCAL = INITIAL_SPIRITS;
 
 export default function App() {
   // Authentication State
@@ -173,10 +154,11 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved) as Spirit[];
         return parsed.map(s => {
-          if (LOCAL_SPIRIT_IMAGES[s.id]) {
-            return { ...s, imageUrl: LOCAL_SPIRIT_IMAGES[s.id] };
+          const match = INITIAL_SPIRITS_WITH_LOCAL.find(init => init.id === s.id);
+          if (match && match.imageUrl) {
+            return { ...s, imageUrl: match.imageUrl };
           }
-          return { ...s, imageUrl: s.imageUrl || undefined };
+          return s;
         });
       } catch (e) {
         console.error(e);
@@ -191,8 +173,9 @@ export default function App() {
         const parsed = JSON.parse(saved) as Spirit[];
         if (parsed && parsed.length > 0) {
           const s = parsed[0];
-          if (LOCAL_SPIRIT_IMAGES[s.id]) {
-            return { ...s, imageUrl: LOCAL_SPIRIT_IMAGES[s.id] };
+          const match = INITIAL_SPIRITS_WITH_LOCAL.find(init => init.id === s.id);
+          if (match && match.imageUrl) {
+            return { ...s, imageUrl: match.imageUrl };
           }
           return s;
         }
