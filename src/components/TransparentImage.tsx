@@ -12,14 +12,6 @@ export const TransparentImage: React.FC<TransparentImageProps> = ({ src, alt, cl
   const [loading, setLoading] = useState<boolean>(!processedCache.has(src));
 
   useEffect(() => {
-    // If it's a remote URL, bypass canvas rendering to avoid cross-origin (CORS) security issues.
-    // This makes sure images are 100% visible and load instantly.
-    if (src.startsWith('http://') || src.startsWith('https://')) {
-      setProcessedSrc(src);
-      setLoading(false);
-      return;
-    }
-
     if (processedCache.get(src)) {
       setProcessedSrc(processedCache.get(src)!);
       setLoading(false);
