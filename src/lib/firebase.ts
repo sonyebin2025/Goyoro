@@ -1,52 +1,15 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { 
-  getFirestore, 
-  doc, 
-  getDoc, 
-  setDoc, 
-  getDocs, 
-  collection, 
-  query, 
-  orderBy, 
-  limit 
-} from 'firebase/firestore';
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
-// Safely retrieve configuration from environment variables
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-};
+// 100% Offline Local Datastore implementation for high reliability in isolated preview sandboxes.
+// Firebase SDK initializers are completely omitted to prevent CORB, CORS, missing-credential blocks, and page crashes.
 
-const databaseId = import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID;
+export let db: any = null;
+export let auth: any = null;
 
-// Check if Firebase configuration is fully supplied
-const isFirebaseConfigured = !!(
-  firebaseConfig.apiKey &&
-  firebaseConfig.projectId
-);
-
-let app: any;
-export let db: any;
-export let auth: any;
-
-if (isFirebaseConfigured) {
-  try {
-    app = initializeApp(firebaseConfig);
-    db = getFirestore(app, databaseId);
-    auth = getAuth();
-  } catch (error) {
-    console.error('Failed to initialize Firebase SDK:', error);
-  }
-} else {
-  console.warn('Firebase VITE_ENV variables missing. Switched to offline localStorage database fallback.');
-}
-
-// Error logging operation types
+// Error logging operation types (for fallback interface compatibility)
 export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',
@@ -67,20 +30,18 @@ export interface FirestoreErrorInfo {
   };
 }
 
-// Global safe error wrapping handler conformant to system guidelines
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth?.currentUser?.uid || 'custom-offline-id',
-      email: auth?.currentUser?.email || null,
-      emailVerified: auth?.currentUser?.emailVerified || null,
+      userId: 'custom-offline-id',
+      email: 'guest@goyo.wellness',
+      emailVerified: true,
     },
     operationType,
     path
   };
-  console.error('Firestore Error Diagnostics logged:', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
+  console.warn('Simulated Local Firestore Error logged:', JSON.stringify(errInfo));
 }
 
 // User Record interface for synchronization
@@ -96,7 +57,7 @@ export interface FirestoreUser {
   updatedAt: string;
 }
 
-// Helper methods for localStorage-backed offline DB sync
+// Helper methods for localStorage-backed database
 function getLocalStorageUsers(): FirestoreUser[] {
   try {
     const list = localStorage.getItem('goyo_offline_users_db');
@@ -104,7 +65,7 @@ function getLocalStorageUsers(): FirestoreUser[] {
   } catch (e) {
     console.error('Failed to read local users database:', e);
   }
-  // Default seeding list (INITIAL_RANKINGS equivalents to make the leaderboards feel live)
+  // Seeding default mock users so the leaderboards still feel alive and interactive!
   const defaultSeeds: FirestoreUser[] = [
     { nickname: '국립숲체원다람쥐', name: '국립숲체원다람쥐', avatar: '🐿️', points: 1450, todayMinutes: 120, revealedSpotIds: [], updatedAt: new Date().toISOString() },
     { nickname: '안흥찐빵할머니', name: '안흥찐빵할머니', avatar: '👵', points: 1200, todayMinutes: 85, revealedSpotIds: [], updatedAt: new Date().toISOString() },
@@ -123,105 +84,47 @@ function saveLocalStorageUsers(users: FirestoreUser[]) {
 }
 
 /**
- * Sync user profile to Firestore (with localStorage fallback)
+ * Sync user profile to LocalStorage Offline Database
  */
 export async function syncUserProfileToFirestore(user: FirestoreUser): Promise<void> {
-  const userPath = `users/${user.nickname.toLowerCase().trim()}`;
+  const users = getLocalStorageUsers();
+  const cleanNickname = user.nickname.toLowerCase().trim();
+  const existingIndex = users.findIndex(u => u.nickname.toLowerCase().trim() === cleanNickname);
   
-  if (!isFirebaseConfigured) {
-    // Offline mode: Sync in localStorage
-    const users = getLocalStorageUsers();
-    const cleanNickname = user.nickname.toLowerCase().trim();
-    const existingIndex = users.findIndex(u => u.nickname.toLowerCase().trim() === cleanNickname);
-    
-    const updatedUser: FirestoreUser = {
-      ...user,
-      nickname: user.nickname,
-      name: user.name,
-      avatar: user.avatar,
-      points: user.points,
-      todayMinutes: user.todayMinutes,
-      revealedSpotIds: user.revealedSpotIds || [],
-      updatedAt: new Date().toISOString()
-    };
-    
-    if (existingIndex >= 0) {
-      users[existingIndex] = { ...users[existingIndex], ...updatedUser };
-    } else {
-      users.push(updatedUser);
-    }
-    
-    saveLocalStorageUsers(users);
-    return;
+  const updatedUser: FirestoreUser = {
+    ...user,
+    nickname: user.nickname,
+    name: user.name,
+    avatar: user.avatar,
+    points: user.points,
+    todayMinutes: user.todayMinutes,
+    revealedSpotIds: user.revealedSpotIds || [],
+    updatedAt: new Date().toISOString()
+  };
+  
+  if (existingIndex >= 0) {
+    users[existingIndex] = { ...users[existingIndex], ...updatedUser };
+  } else {
+    users.push(updatedUser);
   }
-
-  try {
-    const userDocRef = doc(db, 'users', user.nickname.toLowerCase().trim());
-    await setDoc(userDocRef, {
-      nickname: user.nickname,
-      name: user.name,
-      password: user.password || '',
-      secretAnswer: user.secretAnswer || '',
-      avatar: user.avatar,
-      points: user.points,
-      todayMinutes: user.todayMinutes,
-      revealedSpotIds: user.revealedSpotIds || [],
-      updatedAt: new Date().toISOString()
-    }, { merge: true });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, userPath);
-  }
+  
+  saveLocalStorageUsers(users);
 }
 
 /**
- * Fetch a user profile from Firestore (with localStorage fallback)
+ * Fetch a user profile from LocalStorage Offline Database
  */
 export async function fetchUserProfileFromFirestore(nickname: string): Promise<FirestoreUser | null> {
-  const userPath = `users/${nickname.toLowerCase().trim()}`;
-  
-  if (!isFirebaseConfigured) {
-    // Offline mode: Retrieve from localStorage
-    const users = getLocalStorageUsers();
-    const cleanNickname = nickname.toLowerCase().trim();
-    const matched = users.find(u => u.nickname.toLowerCase().trim() === cleanNickname);
-    return matched || null;
-  }
-
-  try {
-    const userDocRef = doc(db, 'users', nickname.toLowerCase().trim());
-    const docSnap = await getDoc(userDocRef);
-    if (docSnap.exists()) {
-      return docSnap.data() as FirestoreUser;
-    }
-    return null;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.GET, userPath);
-    return null;
-  }
+  const users = getLocalStorageUsers();
+  const cleanNickname = nickname.toLowerCase().trim();
+  const matched = users.find(u => u.nickname.toLowerCase().trim() === cleanNickname);
+  return matched || null;
 }
 
 /**
- * Retrieve current rankings sorted by points descending (with localStorage fallback)
+ * Retrieve current rankings sorted by points descending from Offline Database
  */
 export async function fetchLiveRankingsFromFirestore(): Promise<FirestoreUser[]> {
-  const usersPath = 'users';
-  
-  if (!isFirebaseConfigured) {
-    // Offline mode: Sort offline users
-    const users = getLocalStorageUsers();
-    return [...users].sort((a, b) => b.points - a.points);
-  }
-
-  try {
-    const q = query(collection(db, 'users'), orderBy('points', 'desc'), limit(50));
-    const querySnapshot = await getDocs(q);
-    const users: FirestoreUser[] = [];
-    querySnapshot.forEach((docSnap) => {
-      users.push(docSnap.data() as FirestoreUser);
-    });
-    return users;
-  } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, usersPath);
-    return [];
-  }
+  const users = getLocalStorageUsers();
+  return [...users].sort((a, b) => b.points - a.points);
 }

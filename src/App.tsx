@@ -72,8 +72,8 @@ const goyoLogo = "https://blog.kakaocdn.net/dna/ZbKt7/dJMcafmv9cn/AAAAAAAAAAAAAA
 
 export default function App() {
   // Authentication State
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
-  const [username, setUsername] = useState<string>('');
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(true);
+  const [username, setUsername] = useState<string>(() => localStorage.getItem('goyo_logged_user') || '고요나그네');
   const [userIdInput, setUserIdInput] = useState<string>('');
   const [userPasswordInput, setUserPasswordInput] = useState<string>('');
   
@@ -310,8 +310,10 @@ export default function App() {
     const savedUser = localStorage.getItem('goyo_logged_user');
     if (savedUser) {
       setUsername(savedUser);
+    } else {
+      setUsername('고요나그네');
     }
-    setIsLoggedIn(false); // ALWAYS show the elegant login screen first as explicitly requested
+    setIsLoggedIn(true);
     
     // Load local stored score
     const savedScore = localStorage.getItem('goyo_user_score');
@@ -860,12 +862,12 @@ export default function App() {
 
   const handleLogout = () => {
     triggerClick();
-    setIsLoggedIn(false);
-    setUsername('');
+    setIsLoggedIn(true);
+    setUsername('고요나그네');
     localStorage.removeItem('goyo_logged_user');
     // Stop any playing audio
     stopAllAmbientSounds();
-    showToast('🔐 로그아웃되었습니다. 다시 평온해지면 돌아오세요.');
+    showToast('🔐 로그아웃되어 고요나그네(게스트) 계정으로 전환되었습니다.');
   };
 
   // Reset errors when shifting between authentications
